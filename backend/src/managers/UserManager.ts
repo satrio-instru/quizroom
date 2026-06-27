@@ -1,6 +1,7 @@
 import { Socket } from "socket.io";
+import { config } from "../config";
+import { getParticipantAccess } from "../access/ParticipantAccess";
 import { QuizManager } from "./QuizManager";
-const ADMIN_PASSWORD = "ADMIN_PASSWORD";
 
 export class UserManager {
 
@@ -8,7 +9,7 @@ export class UserManager {
     // It handles user connections, quiz creation, problem submission, and state management.
     private quizManager;
 
-    /* 
+    /*
     This constructor initializes the UserManager with a QuizManager instance.
     */
     constructor() {
@@ -20,80 +21,154 @@ export class UserManager {
     }
 
     private createHandlers(socket: Socket) {
+        // ─── Participant join ───
         socket.on("join", (data) => {
-            const userId = this.quizManager.addUser(data.roomId, data.name)
+            const npm = String(data.npm ?? data.name ?? "").trim();
+            const roomId = String(data.roomId ?? "").trim();
+
+            if (!roomId) {
+                socket.emit("joinRejected", {
+                    message: "Room ID wajib diisi."
+                });
+                return;
+            }
+
+            const accessResult = getParticipantAccess(npm);
+
+            if (!accessResult.allowed || !accessResult.access) {
+                socket.emit("joinRejected", {
+                    message: accessResult.message ?? "NPM tidak diizinkan masuk."
+                });
+                return;
+            }
+
+            // Leave previous room if any
+            if (socket.data.roomId && socket.data.roomId !== roomId) {
+                socket.leave(socket.data.roomId);
+            }
+
+            const userId = this.quizManager.addUser(roomId, accessResult.access)
+            if (userId) {
+                socket.data.userId = userId;
+                socket.data.roomId = roomId;
+                socket.data.npm = npm;
+            }
+
             socket.emit("init", {
                 userId,
-                state: this.quizManager.getCurrentState(data.roomId)
+                npm,
+                roomId,
+                access: accessResult.access,
+                state: this.quizManager.getCurrentState(roomId)
             });
-            socket.join(data.roomId);
+            if (userId) {
+                socket.join(roomId);
+            }
         });
 
+        // ─── Leave handler ───
+        socket.on("leave", (data) => {
+            const roomId = data?.roomId || socket.data.roomId;
+            const userId = socket.data.userId;
+            if (roomId && userId) {
+                this.quizManager.removeUser(roomId, userId);
+                socket.leave(roomId);
+            }
+            socket.data.userId = undefined;
+            socket.data.roomId = undefined;
+            socket.data.npm = undefined;
+            socket.data.isAdmin = undefined;
+        });
+
+        // ─── Admin authentication ───
         socket.on("joinAdmin", (data) => {
-            console.log("Admin login attempt with password:", data.password);
-            if (data.password !== ADMIN_PASSWORD) {
-                console.log("Admin authentication failed");
+            if (data.password !== config.adminPassword) {
                 socket.emit("adminAuth", { success: false });
                 return;
             }
-            console.log("Admin authenticated successfully");
+            socket.data.isAdmin = true;
             socket.emit("adminAuth", { success: true });
-
-            socket.on("createQuiz", data => {
-                try {
-                    this.quizManager.addQuiz(data.roomId);
-                    socket.emit("quizCreated", { roomId: data.roomId });
-                } catch (error) {
-                    socket.emit("error", { message: "Failed to create quiz" });
-                }
-            });
-
-            socket.on("createProblem", data => {
-                try {
-                    this.quizManager.addProblem(data.roomId, data.problem);
-                    socket.emit("problemAdded", { roomId: data.roomId });
-                } catch (error) {
-                    socket.emit("error", { message: "Failed to add problem" });
-                }
-            });
-
-            socket.on("next", data => {
-                try {
-                    this.quizManager.next(data.roomId);
-                } catch (error) {
-                    socket.emit("error", { message: "Failed to proceed to next question" });
-                }
-            });
-
-            socket.on("start", data => {
-                try {
-                    this.quizManager.start(data.roomId);
-                } catch (error) {
-                    socket.emit("error", { message: "Failed to start quiz" });
-                }
-            });
-
-            socket.on("getQuizState", data => {
-                try {
-                    const state = this.quizManager.getCurrentState(data.roomId);
-                    socket.emit("quizStateUpdate", state);
-                } catch (error) {
-                    socket.emit("error", { message: "Failed to get quiz state" });
-                }
-            });
         });
 
-        socket.on("submit", (data) => {
-            const userId = data.userId;
-            const problemId = data.problemId;
-            const submission = data.submission;
-            const roomId = data.roomId;
-            if (submission != 0 && submission != 1 && submission != 2 && submission != 3) {
-                console.error("issue while getting input " + submission)
+        // ─── BUG FIX [8.7]: Admin events — always registered, auth checked per call ───
+
+        socket.on("createQuiz", (data) => {
+            if (!socket.data.isAdmin) {
+                socket.emit("error", { message: "Not authenticated as admin." });
                 return;
             }
-            console.log("sub,itting")
-            console.log(roomId);
+            try {
+                this.quizManager.addQuiz(data.roomId);
+                socket.emit("quizCreated", { roomId: data.roomId });
+            } catch (error) {
+                socket.emit("error", { message: "Failed to create quiz" });
+            }
+        });
+
+        socket.on("createProblem", (data) => {
+            if (!socket.data.isAdmin) {
+                socket.emit("error", { message: "Not authenticated as admin." });
+                return;
+            }
+            try {
+                this.quizManager.addProblem(data.roomId, data.problem);
+                socket.emit("problemAdded", { roomId: data.roomId });
+            } catch (error) {
+                socket.emit("error", { message: "Failed to add problem" });
+            }
+        });
+
+        socket.on("next", (data) => {
+            if (!socket.data.isAdmin) {
+                socket.emit("error", { message: "Not authenticated as admin." });
+                return;
+            }
+            try {
+                this.quizManager.next(data.roomId);
+            } catch (error) {
+                socket.emit("error", { message: "Failed to proceed to next question" });
+            }
+        });
+
+        socket.on("start", (data) => {
+            if (!socket.data.isAdmin) {
+                socket.emit("error", { message: "Not authenticated as admin." });
+                return;
+            }
+            try {
+                this.quizManager.start(data.roomId);
+            } catch (error) {
+                socket.emit("error", { message: "Failed to start quiz" });
+            }
+        });
+
+        socket.on("getQuizState", (data) => {
+            if (!socket.data.isAdmin) {
+                socket.emit("error", { message: "Not authenticated as admin." });
+                return;
+            }
+            try {
+                const state = this.quizManager.getCurrentState(data.roomId, true);
+                socket.emit("quizStateUpdate", state);
+            } catch (error) {
+                socket.emit("error", { message: "Failed to get quiz state" });
+            }
+        });
+
+        // ─── Participant submit ───
+        socket.on("submit", (data) => {
+            const userId = socket.data.userId;
+            const roomId = socket.data.roomId;
+            const problemId = data.problemId;
+            const submission = data.submission;
+            if (!userId || !roomId) {
+                socket.emit("error", { message: "Please join the room before submitting." });
+                return;
+            }
+            if (submission != 0 && submission != 1 && submission != 2 && submission != 3) {
+                socket.emit("error", { message: "Invalid answer option." });
+                return;
+            }
             this.quizManager.submit(userId, roomId, problemId, submission)
         });
     }

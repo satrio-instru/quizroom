@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: quizroom-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+
+  - type: static_site
+    name: quizroom
+    buildCommand: cd frontend && npm install && npm run build
+    staticPublishPath: ./frontend/dist
+    autoDeploy: true
+    envVars:
+      - key: VITE_SOCKET_URL
+        sync: false

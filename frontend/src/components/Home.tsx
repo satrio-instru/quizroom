@@ -1,23 +1,50 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import { Alert, AlertDescription } from './ui/alert';
 import { useSocket } from '../contexts/SocketContext';
 
 export const Home = () => {
-    const [userName, setUserName] = useState('');
+    const [npm, setNpm] = useState('');
     const [roomId, setRoomId] = useState('');
-    const { joinRoom, isConnected } = useSocket();
+    const [isJoining, setIsJoining] = useState(false);
+    const { joinRoom, isConnected, joinError, clearJoinError, currentRoomId, quizState } = useSocket();
     const navigate = useNavigate();
+    const isNpmValid = /^\d+$/.test(npm);
+
+    // Navigate only after server confirms join
+    useEffect(() => {
+        if (isJoining && currentRoomId && quizState && quizState.type !== 'room_not_found') {
+            setIsJoining(false);
+            navigate(`/quiz/${currentRoomId}`);
+        }
+        if (isJoining && quizState?.type === 'room_not_found') {
+            setIsJoining(false);
+        }
+        if (isJoining && joinError) {
+            setIsJoining(false);
+        }
+        // Reset isJoining if disconnected
+        if (isJoining && !isConnected) {
+            setIsJoining(false);
+        }
+    }, [currentRoomId, quizState, joinError, isJoining, navigate, isConnected]);
 
     const handleJoinRoom = () => {
-        if (userName.trim() && roomId.trim()) {
-            joinRoom(roomId.trim(), userName.trim());
-            navigate(`/quiz/${roomId.trim()}`);
+        if (isNpmValid && roomId.trim()) {
+            setIsJoining(true);
+            clearJoinError();
+            joinRoom(roomId.trim(), npm.trim());
         }
+    };
+
+    const handleNpmChange = (value: string) => {
+        clearJoinError();
+        setNpm(value.replace(/\D/g, ''));
     };
 
     return (
@@ -43,13 +70,20 @@ export const Home = () => {
                         </TabsList>
 
                         <TabsContent value="join" className="space-y-4">
+                            {joinError && (
+                                <Alert className="border-red-200 bg-red-50">
+                                    <AlertDescription className="text-red-700">{joinError}</AlertDescription>
+                                </Alert>
+                            )}
                             <div className="space-y-2">
-                                <Label htmlFor="join-name">Your Name</Label>
+                                <Label htmlFor="join-npm">NPM</Label>
                                 <Input
-                                    id="join-name"
-                                    placeholder="Enter your display name"
-                                    value={userName}
-                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setUserName(e.target.value)}
+                                    id="join-npm"
+                                    inputMode="numeric"
+                                    pattern="[0-9]*"
+                                    placeholder="Masukkan NPM"
+                                    value={npm}
+                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleNpmChange(e.target.value)}
                                 />
                             </div>
                             <div className="space-y-2">
@@ -59,20 +93,20 @@ export const Home = () => {
                                     placeholder="Ask your instructor for the room ID"
                                     value={roomId}
                                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRoomId(e.target.value)}
-                                    onKeyPress={(e) => e.key === 'Enter' && userName.trim() && roomId.trim() && handleJoinRoom()}
+                                    onKeyDown={(e) => e.key === 'Enter' && isNpmValid && roomId.trim() && handleJoinRoom()}
                                 />
                             </div>
                             <Button
                                 onClick={handleJoinRoom}
                                 className="w-full"
-                                disabled={!userName.trim() || !roomId.trim() || !isConnected}
+                                disabled={!isNpmValid || !roomId.trim() || !isConnected || isJoining}
                             >
-                                {!isConnected ? 'Connecting...' : 'Join Quiz'}
+                                {!isConnected ? 'Connecting...' : isJoining ? 'Joining...' : 'Join Quiz'}
                             </Button>
                         </TabsContent>
 
                         <TabsContent value="create" className="space-y-4">
-                            <div className="space-y-2 flex flex-col items-center p-10">
+                            <div className="space-y-4 flex flex-col items-center p-10">
                                 <div className="text-center space-y-4">
                                     <h3 className="font-semibold text-lg">Create Your Own Quiz</h3>
                                     <p className="text-gray-600 text-sm">

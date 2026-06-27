@@ -1,5 +1,7 @@
+import crypto from "crypto";
 import { IoManager } from "./managers/IoManager";
 import { AllowedSubmissions, Problem, User } from "./types/types";
+import { ParticipantAccess, isAccessExpired } from "./access/ParticipantAccess";
 
 const PROBLEM_TIME_S = 20;
 
@@ -12,9 +14,9 @@ export class Quiz {
     private activeProblem: number;
     private users: User[];
     private currentState: "leaderboard" | "question" | "not_started" | "ended";
+    private leaderboardTimeout: ReturnType<typeof setTimeout> | null = null;
 
-
-    /* 
+    /*
     Constructor for the Quiz class.
     Initializes the quiz with a room ID, sets the quiz state to not started,
     initializes the problems array, sets the active problem index to 0,
@@ -22,7 +24,7 @@ export class Quiz {
 
     @param {string} roomId - The unique identifier for the quiz room.
     @returns {void}
-    
+
     */
     constructor(roomId: string) {
         this.roomId = roomId;
@@ -31,26 +33,6 @@ export class Quiz {
         this.activeProblem = 0;
         this.users = [];
         this.currentState = "not_started";
-        console.log("room created");
-        setInterval(() => {
-            this.debug();
-        }, 10000)
-    }
-
-    /*
-    Debug method to log the current state of the quiz.
-    It logs the room ID, problems, users, current state, and active problem index to the console.
-
-    @returns {void}
-    */
-
-    debug() {
-        console.log("----debug---")
-        console.log(this.roomId)
-        console.log(JSON.stringify(this.problems))
-        console.log(this.users)
-        console.log(this.currentState)
-        console.log(this.activeProblem);
     }
 
     /*
@@ -62,8 +44,10 @@ export class Quiz {
     */
 
     addProblem(problem: Problem) {
+        if (this.hasStarted) {
+            throw new Error("Cannot add problems after quiz has started");
+        }
         this.problems.push(problem);
-        console.log(this.problems);
     }
 
     /*
@@ -74,6 +58,9 @@ export class Quiz {
     */
 
     start() {
+        if (this.problems.length === 0) {
+            throw new Error("Cannot start quiz without problems");
+        }
         this.hasStarted = true;
         this.setActiveProblem(this.problems[0]);
     }
@@ -86,16 +73,21 @@ export class Quiz {
     */
 
     setActiveProblem(problem: Problem) {
-        console.log("set active problem")
+        // BUG FIX [8.3]: Clear previous timeout to prevent stacking
+        if (this.leaderboardTimeout) {
+            clearTimeout(this.leaderboardTimeout);
+            this.leaderboardTimeout = null;
+        }
+
         this.currentState = "question"
         problem.startTime = new Date().getTime();
         problem.submissions = [];
         IoManager.getIo().to(this.roomId).emit("problem", {
-            problem
+            problem: this.sanitizeProblemForClient(problem)
         })
-        // Todo: clear this if function moves ahead
-        setTimeout(() => {
+        this.leaderboardTimeout = setTimeout(() => {
             this.sendLeaderboard();
+            this.leaderboardTimeout = null;
         }, PROBLEM_TIME_S * 1000);
     }
 
@@ -108,7 +100,6 @@ export class Quiz {
 
 
     sendLeaderboard() {
-        console.log("send leaderboard")
         this.currentState = "leaderboard"
         const leaderboard = this.getLeaderboard();
         IoManager.getIo().to(this.roomId).emit("leaderboard", {
@@ -128,46 +119,66 @@ export class Quiz {
         if (problem) {
             this.setActiveProblem(problem);
         } else {
+            // BUG FIX [8.2]: Set ended state and emit quizEnd event
             this.activeProblem--;
-            // send final results here
-            // IoManager.getIo().emit("QUIZ_END", {
-            //     problem
-            // })
+            this.currentState = "ended";
+
+            // Clear any pending leaderboard timeout
+            if (this.leaderboardTimeout) {
+                clearTimeout(this.leaderboardTimeout);
+                this.leaderboardTimeout = null;
+            }
+
+            IoManager.getIo().to(this.roomId).emit("quizEnd", {
+                leaderboard: this.getLeaderboard()
+            });
         }
     }
 
     /*
-    Generates a random string of a specified length.
+    Generates a cryptographically secure random string.
 
     @param {number} length - The length of the random string to generate.
     @returns {string} - The generated random string.
     */
 
-    genRandonString(length: number) {
-        var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%^&*()';
-        var charLength = chars.length;
-        var result = '';
-        for (var i = 0; i < length; i++) {
-            result += chars.charAt(Math.floor(Math.random() * charLength));
-        }
-        return result;
+    genRandomString(length: number) {
+        return crypto.randomBytes(length).toString("base64url").slice(0, length);
     }
 
     /*
     Adds a user to the quiz.
 
-    @param {string} name - The name of the user to add.
+    @param {ParticipantAccess} access - The access info of the user to add.
     @returns {string} - The ID of the added user.
     */
 
-    addUser(name: string) {
-        const id = this.genRandonString(7);
+    addUser(access: ParticipantAccess) {
+        const existingUser = this.users.find(x => x.npm === access.npm);
+        if (existingUser) {
+            existingUser.name = access.name;
+            existingUser.accessExpiresAt = access.expiresAt;
+            existingUser.unlimitedAccess = access.unlimited;
+            return existingUser.id;
+        }
+
+        const id = this.genRandomString(7);
         this.users.push({
             id,
-            name,
-            points: 0
+            name: access.name,
+            npm: access.npm,
+            points: 0,
+            accessExpiresAt: access.expiresAt,
+            unlimitedAccess: access.unlimited,
         })
         return id;
+    }
+
+    removeUser(userId: string) {
+        const index = this.users.findIndex(x => x.id === userId);
+        if (index !== -1) {
+            this.users.splice(index, 1);
+        }
     }
 
     /*
@@ -180,30 +191,42 @@ export class Quiz {
     @returns {void}
     */
 
-    submit(userId: string, roomId: string, problemId: string, submission: AllowedSubmissions) {
-        console.log("userId");
-        console.log(userId);
-        const problem = this.problems.find(x => x.id == problemId);
+    submit(userId: string, problemId: string, submission: AllowedSubmissions) {
+        // FIX: Validate that the submitted problem is the active one
+        const activeProblem = this.problems[this.activeProblem];
+        if (!activeProblem || activeProblem.id !== problemId) {
+            return;
+        }
+
         const user = this.users.find(x => x.id === userId);
-
-        if (!problem || !user) {
-            console.log("problem or user not found")
+        if (!user) {
             return;
         }
-        const existingSubmission = problem.submissions.find(x => x.userId === userId);
+        if (isAccessExpired(user.accessExpiresAt)) {
+            return;
+        }
 
+        const existingSubmission = activeProblem.submissions.find(x => x.userId === userId);
         if (existingSubmission) {
-            console.log("existn submissions")
             return;
         }
 
-        problem.submissions.push({
+        const isCorrect = activeProblem.answer === submission;
+        activeProblem.submissions.push({
             problemId,
             userId,
-            isCorrect: problem.answer === submission,
+            isCorrect,
             optionSelected: submission
         });
-        user.points += (1000 - (500 * (new Date().getTime() - problem.startTime) / (PROBLEM_TIME_S * 1000)));
+
+        // FIX: Only award points if the answer is CORRECT
+        if (isCorrect) {
+            const elapsed = new Date().getTime() - activeProblem.startTime;
+            const maxTime = PROBLEM_TIME_S * 1000;
+            const timeRatio = Math.min(elapsed / maxTime, 1);
+            const points = Math.max(0, Math.round(1000 - (500 * timeRatio)));
+            user.points += points;
+        }
     }
 
     /*
@@ -213,7 +236,12 @@ export class Quiz {
     */
 
     getLeaderboard() {
-        return this.users.sort((a, b) => a.points < b.points ? 1 : -1).slice(0, 20);;
+        return [...this.users].sort((a, b) => b.points - a.points).slice(0, 20);
+    }
+
+    private sanitizeProblemForClient(problem: Problem) {
+        const { answer, submissions, ...safeProblem } = problem;
+        return safeProblem;
     }
 
     /*
@@ -222,7 +250,7 @@ export class Quiz {
     @returns {Object} - The current state of the quiz.
     */
 
-    getCurrentState() {
+    getCurrentState(includeAnswers = false) {
         if (this.currentState === "not_started") {
             return {
                 type: "not_started"
@@ -244,7 +272,7 @@ export class Quiz {
             const problem = this.problems[this.activeProblem];
             return {
                 type: "question",
-                problem
+                problem: includeAnswers ? problem : this.sanitizeProblemForClient(problem)
             }
         }
     }

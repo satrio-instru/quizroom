@@ -1,13 +1,14 @@
+import crypto from "crypto";
 import { Quiz } from "../Quiz";
+import { ParticipantAccess } from "../access/ParticipantAccess";
 import { AllowedSubmissions } from "../types/types";
 import { IoManager } from "./IoManager";
-let globalProblemId = 0;
 
 export class QuizManager {
 
     private quizes: Quiz[];
 
-    
+
     constructor() {
         this.quizes = [];
     }
@@ -34,9 +35,10 @@ export class QuizManager {
         if (!quiz) {
             return;
         }
+        // BUG FIX [8.12]: Use crypto.randomUUID() instead of globalProblemId counter
         quiz.addProblem({
             ...problem,
-            id: (globalProblemId++).toString(),
+            id: crypto.randomUUID(),
             startTime: new Date().getTime(),
             submissions: []
         });
@@ -50,24 +52,28 @@ export class QuizManager {
         quiz.next();
     }
 
-    addUser(roomId: string, name: string) {
-        return this.getQuiz(roomId)?.addUser(name);
+    addUser(roomId: string, access: ParticipantAccess) {
+        return this.getQuiz(roomId)?.addUser(access);
     }
 
     submit(userId: string, roomId: string, problemId: string, submission: 0 | 1 | 2 | 3) {
-        this.getQuiz(roomId)?.submit(userId, roomId, problemId, submission);
+        this.getQuiz(roomId)?.submit(userId, problemId, submission);
+    }
+
+    removeUser(roomId: string, userId: string) {
+        this.getQuiz(roomId)?.removeUser(userId);
     }
 
     getQuiz(roomId: string) {
         return this.quizes.find(x => x.roomId === roomId) ?? null;
     }
 
-    getCurrentState(roomId: string) {
+    getCurrentState(roomId: string, includeAnswers = false) {
         const quiz = this.quizes.find(x => x.roomId === roomId);
         if (!quiz) {
             return null;
         }
-        return quiz.getCurrentState();
+        return quiz.getCurrentState(includeAnswers);
     }
 
     addQuiz(roomId: string) {

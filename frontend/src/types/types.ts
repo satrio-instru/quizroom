@@ -4,6 +4,9 @@ export interface User {
   name: string;
   id: string;
   points: number;
+  npm: string;
+  accessExpiresAt?: number | null;
+  unlimitedAccess?: boolean;
 }
 
 export interface Submission {

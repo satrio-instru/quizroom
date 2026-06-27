@@ -8,6 +8,29 @@ import { Badge } from './ui/badge';
 import { Alert, AlertDescription } from './ui/alert';
 import { useSocket } from '../contexts/SocketContext';
 import type { AllowedSubmissions } from '../types/types';
+import { Plus, Trash2 } from 'lucide-react';
+
+interface ParticipantScheduleDraft {
+  id: number;
+  npm: string;
+  name: string;
+  date: string;
+  day: string;
+  startTime: string;
+  durationMinutes: string;
+  endTime: string;
+}
+
+const createScheduleDraft = (id: number): ParticipantScheduleDraft => ({
+  id,
+  npm: '',
+  name: '',
+  date: '',
+  day: '',
+  startTime: '',
+  durationMinutes: '20',
+  endTime: '',
+});
 
 export const Admin = () => {
     
@@ -25,6 +48,9 @@ export const Admin = () => {
   const [problemDescription, setProblemDescription] = useState('');
   const [options, setOptions] = useState(['', '', '', '']);
   const [correctAnswer, setCorrectAnswer] = useState<AllowedSubmissions>(0);
+  const [participantSchedules, setParticipantSchedules] = useState<ParticipantScheduleDraft[]>([
+    createScheduleDraft(1),
+  ]);
 
   // Listen for authentication events (always active)
   useEffect(() => {
@@ -141,10 +167,47 @@ export const Admin = () => {
     }
   };
 
+  // BUG FIX [8.17]: Add logout functionality
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    setPassword('');
+    setCurrentQuizState(null);
+    setActiveQuizzes([]);
+    setError('');
+    setSuccess('');
+  };
+
   const updateOption = (index: number, value: string) => {
     const newOptions = [...options];
     newOptions[index] = value;
     setOptions(newOptions);
+  };
+
+  const addParticipantSchedule = () => {
+    setParticipantSchedules(prev => [
+      ...prev,
+      createScheduleDraft(Date.now()),
+    ]);
+  };
+
+  const removeParticipantSchedule = (id: number) => {
+    setParticipantSchedules(prev => prev.length === 1 ? prev : prev.filter(schedule => schedule.id !== id));
+  };
+
+  const updateParticipantSchedule = (
+    id: number,
+    field: keyof Omit<ParticipantScheduleDraft, 'id'>,
+    value: string
+  ) => {
+    const normalizedValue = field === 'npm' || field === 'durationMinutes'
+      ? value.replace(/\D/g, '')
+      : value;
+
+    setParticipantSchedules(prev => prev.map(schedule => (
+      schedule.id === id
+        ? { ...schedule, [field]: normalizedValue }
+        : schedule
+    )));
   };
 
   if (!isAuthenticated) {
@@ -177,7 +240,7 @@ export const Admin = () => {
                 placeholder="Enter admin password"
                 value={password}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && handleLogin()}
+                onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
               />
             </div>
             <Button
@@ -200,9 +263,14 @@ export const Admin = () => {
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
               Quiz Admin Panel
-              <Badge variant={isConnected ? "default" : "destructive"}>
-                {isConnected ? 'Connected' : 'Disconnected'}
-              </Badge>
+              <div className="flex items-center gap-2">
+                <Badge variant={isConnected ? "default" : "destructive"}>
+                  {isConnected ? 'Connected' : 'Disconnected'}
+                </Badge>
+                <Button variant="outline" size="sm" onClick={handleLogout}>
+                  Logout
+                </Button>
+              </div>
             </CardTitle>
             <CardDescription>Manage quizzes, problems, and control flow</CardDescription>
           </CardHeader>
@@ -221,9 +289,10 @@ export const Admin = () => {
         )}
 
         <Tabs defaultValue="quiz" className="w-full">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid h-auto w-full grid-cols-2 md:grid-cols-5">
             <TabsTrigger value="quiz">Quiz Management</TabsTrigger>
             <TabsTrigger value="problems">Create Problems</TabsTrigger>
+            <TabsTrigger value="schedule">Jadwal Peserta</TabsTrigger>
             <TabsTrigger value="control">Quiz Control</TabsTrigger>
             <TabsTrigger value="monitor">Live Monitor</TabsTrigger>
           </TabsList>
@@ -356,6 +425,136 @@ export const Admin = () => {
                   >
                     Add Problem to Quiz
                   </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+          
+          <TabsContent value="schedule" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  Jadwal Peserta
+                  <Button onClick={addParticipantSchedule} size="sm" className="w-full md:w-auto">
+                    <Plus className="mr-2 h-4 w-4" />
+                    Tambah Peserta
+                  </Button>
+                </CardTitle>
+                <CardDescription>
+                  Layout input manual untuk NPM, tanggal, hari, jam mulai, durasi menit, dan jam selesai.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid gap-3 rounded-md border bg-white p-3 text-sm font-medium text-gray-600 md:grid-cols-[1.1fr_1.4fr_1fr_0.8fr_0.9fr_0.8fr_0.9fr_44px]">
+                  <span>NPM</span>
+                  <span>Nama</span>
+                  <span>Tanggal</span>
+                  <span>Hari</span>
+                  <span>Jam Mulai</span>
+                  <span>Menit</span>
+                  <span>Jam Selesai</span>
+                  <span />
+                </div>
+
+                <div className="space-y-3">
+                  {participantSchedules.map((schedule, index) => (
+                    <div
+                      key={schedule.id}
+                      className="grid gap-3 rounded-md border bg-white p-3 md:grid-cols-[1.1fr_1.4fr_1fr_0.8fr_0.9fr_0.8fr_0.9fr_44px]"
+                    >
+                      <div className="space-y-1">
+                        <Label htmlFor={`schedule-npm-${schedule.id}`} className="md:hidden">NPM</Label>
+                        <Input
+                          id={`schedule-npm-${schedule.id}`}
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          placeholder="2517041001"
+                          value={schedule.npm}
+                          onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateParticipantSchedule(schedule.id, 'npm', e.target.value)}
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <Label htmlFor={`schedule-name-${schedule.id}`} className="md:hidden">Nama</Label>
+                        <Input
+                          id={`schedule-name-${schedule.id}`}
+                          placeholder={`Peserta ${index + 1}`}
+                          value={schedule.name}
+                          onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateParticipantSchedule(schedule.id, 'name', e.target.value)}
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <Label htmlFor={`schedule-date-${schedule.id}`} className="md:hidden">Tanggal</Label>
+                        <Input
+                          id={`schedule-date-${schedule.id}`}
+                          type="date"
+                          value={schedule.date}
+                          onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateParticipantSchedule(schedule.id, 'date', e.target.value)}
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <Label htmlFor={`schedule-day-${schedule.id}`} className="md:hidden">Hari</Label>
+                        <Input
+                          id={`schedule-day-${schedule.id}`}
+                          placeholder="Hari 1"
+                          value={schedule.day}
+                          onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateParticipantSchedule(schedule.id, 'day', e.target.value)}
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <Label htmlFor={`schedule-start-${schedule.id}`} className="md:hidden">Jam Mulai</Label>
+                        <Input
+                          id={`schedule-start-${schedule.id}`}
+                          type="time"
+                          value={schedule.startTime}
+                          onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateParticipantSchedule(schedule.id, 'startTime', e.target.value)}
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <Label htmlFor={`schedule-duration-${schedule.id}`} className="md:hidden">Menit</Label>
+                        <Input
+                          id={`schedule-duration-${schedule.id}`}
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          placeholder="20"
+                          value={schedule.durationMinutes}
+                          onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateParticipantSchedule(schedule.id, 'durationMinutes', e.target.value)}
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <Label htmlFor={`schedule-end-${schedule.id}`} className="md:hidden">Jam Selesai</Label>
+                        <Input
+                          id={`schedule-end-${schedule.id}`}
+                          type="time"
+                          value={schedule.endTime}
+                          onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateParticipantSchedule(schedule.id, 'endTime', e.target.value)}
+                        />
+                      </div>
+
+                      <div className="flex items-end">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          aria-label="Hapus peserta"
+                          onClick={() => removeParticipantSchedule(schedule.id)}
+                          disabled={participantSchedules.length === 1}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex flex-col gap-2 rounded-md border border-blue-100 bg-blue-50 p-3 text-sm text-blue-800 md:flex-row md:items-center md:justify-between">
+                  <span>Total baris jadwal: {participantSchedules.length}</span>
+                  <span>Data ini masih layout sementara dan belum disimpan ke server.</span>
                 </div>
               </CardContent>
             </Card>

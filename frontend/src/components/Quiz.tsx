@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
@@ -10,11 +10,27 @@ import type { AllowedSubmissions } from '../types/types';
 export const Quiz = () => {
     const { roomId } = useParams<{ roomId: string }>();
     const navigate = useNavigate();
-    const { quizState, submitAnswer, userId } = useSocket();
+    const { quizState, submitAnswer, userId, userAccess } = useSocket();
     const [selectedOption, setSelectedOption] = useState<AllowedSubmissions | null>(null);
     const [timeLeft, setTimeLeft] = useState(20);
     const [hasSubmitted, setHasSubmitted] = useState(false);
     const [connectionTimeout, setConnectionTimeout] = useState(false);
+    const [accessRemainingMs, setAccessRemainingMs] = useState<number | null>(null);
+
+    // Use refs to avoid stale closure in timer
+    const selectedOptionRef = useRef<AllowedSubmissions | null>(null);
+    const hasSubmittedRef = useRef<boolean>(false);
+    const problemRef = useRef<any>(null);
+
+    const setSelectedOptionWithRef = useCallback((option: AllowedSubmissions | null) => {
+        setSelectedOption(option);
+        selectedOptionRef.current = option;
+    }, []);
+
+    const setHasSubmittedWithRef = useCallback((value: boolean) => {
+        setHasSubmitted(value);
+        hasSubmittedRef.current = value;
+    }, []);
 
     // Redirect if no roomId in URL
     useEffect(() => {
@@ -40,20 +56,20 @@ export const Quiz = () => {
     }, [quizState]);
 
     useEffect(() => {
-        if (quizState?.type === 'question') {
-            setTimeLeft(20); // Reset timer for new question
-            setSelectedOption(null); // Reset selected option for new question
-            setHasSubmitted(false); // Reset submission status for new question
-            
+        if (quizState?.type === 'question' && quizState.problem) {
+            setTimeLeft(20);
+            setSelectedOptionWithRef(null);
+            setHasSubmittedWithRef(false);
+            problemRef.current = quizState.problem;
+
             const timer = setInterval(() => {
                 setTimeLeft((prev) => {
                     if (prev <= 1) {
                         clearInterval(timer);
-                        // Auto-submit if time runs out and user has selected an option
-                        if (selectedOption !== null && quizState?.problem && roomId && !hasSubmitted) {
-                            const currentProblem = quizState.problem;
-                            submitAnswer(roomId, currentProblem.id, selectedOption);
-                            setHasSubmitted(true);
+                        // Use refs to avoid stale closure
+                        if (selectedOptionRef.current !== null && problemRef.current && roomId && !hasSubmittedRef.current) {
+                            submitAnswer(roomId, problemRef.current.id, selectedOptionRef.current);
+                            setHasSubmittedWithRef(true);
                         }
                         return 0;
                     }
@@ -63,15 +79,68 @@ export const Quiz = () => {
 
             return () => clearInterval(timer);
         }
-    }, [quizState?.type, quizState?.problem?.id]); // Also depend on problem ID to reset when question changes
+    }, [quizState?.type, quizState?.problem?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    useEffect(() => {
+        if (!userAccess || userAccess.unlimited || !userAccess.expiresAt) {
+            setAccessRemainingMs(null);
+            return;
+        }
+
+        const updateRemainingTime = () => {
+            setAccessRemainingMs(Math.max(0, userAccess.expiresAt! - Date.now()));
+        };
+
+        updateRemainingTime();
+        const timer = setInterval(updateRemainingTime, 1000);
+        return () => clearInterval(timer);
+    }, [userAccess]);
 
     const handleSubmit = () => {
         if (selectedOption !== null && quizState?.problem && roomId && !hasSubmitted) {
             const currentProblem = quizState.problem;
             submitAnswer(roomId, currentProblem.id, selectedOption);
-            setHasSubmitted(true);
+            setHasSubmittedWithRef(true);
         }
     };
+
+    const formatAccessTime = (remainingMs: number | null) => {
+        if (remainingMs === null) {
+            return 'Menghitung...';
+        }
+
+        const totalSeconds = Math.ceil(remainingMs / 1000);
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        return `${minutes}m ${seconds.toString().padStart(2, '0')}s`;
+    };
+
+    const accessBadge = userAccess ? (
+        <Badge variant={userAccess.unlimited ? 'default' : accessRemainingMs !== null && accessRemainingMs <= 60000 ? 'destructive' : 'secondary'}>
+            Akses: {userAccess.unlimited ? 'Bebas akses' : formatAccessTime(accessRemainingMs)}
+        </Badge>
+    ) : null;
+
+    if (userAccess && !userAccess.unlimited && accessRemainingMs === 0) {
+        return (
+            <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+                <Card className="w-full max-w-2xl">
+                    <CardHeader className="text-center">
+                        <CardTitle>Akses Berakhir</CardTitle>
+                        <CardDescription>NPM: {userAccess.npm}</CardDescription>
+                    </CardHeader>
+                    <CardContent className="text-center space-y-4">
+                        <p className="text-gray-600">
+                            Waktu akses untuk jadwal {userAccess.schedule} sudah habis.
+                        </p>
+                        <Button onClick={() => navigate('/')}>
+                            Kembali
+                        </Button>
+                    </CardContent>
+                </Card>
+            </div>
+        );
+    }
 
     if (!quizState) {
         if (connectionTimeout) {
@@ -154,12 +223,17 @@ export const Quiz = () => {
                         <p className="text-gray-600 mb-4">
                             Make sure you have the correct room ID, or ask the quiz administrator to create the room.
                         </p>
-                        <Button
-                            onClick={() => window.location.reload()}
-                            variant="outline"
-                        >
-                            Try Again
-                        </Button>
+                        <div className="flex gap-2 justify-center">
+                            <Button
+                                onClick={() => window.location.reload()}
+                                variant="outline"
+                            >
+                                Try Again
+                            </Button>
+                            <Button onClick={() => navigate('/')}>
+                                Go Back Home
+                            </Button>
+                        </div>
                     </CardContent>
                 </Card>
             </div>
@@ -175,6 +249,7 @@ export const Quiz = () => {
                         <CardDescription>Room ID: {roomId}</CardDescription>
                     </CardHeader>
                     <CardContent className="text-center">
+                        <div className="mb-4">{accessBadge}</div>
                         <p className="text-gray-600">
                             Waiting for admin to start the quiz...
                         </p>
@@ -195,9 +270,12 @@ export const Quiz = () => {
                         <CardHeader>
                             <div className="flex justify-between items-center">
                                 <CardTitle>Current Question</CardTitle>
-                                <Badge variant={timeLeft > 10 ? "default" : "destructive"}>
-                                    {timeLeft}s
-                                </Badge>
+                                <div className="flex gap-2">
+                                    {accessBadge}
+                                    <Badge variant={timeLeft > 10 ? "default" : "destructive"}>
+                                        {timeLeft}s
+                                    </Badge>
+                                </div>
                             </div>
                             <Progress value={progress} className="w-full" />
                         </CardHeader>
@@ -216,13 +294,13 @@ export const Quiz = () => {
                                     </p>
                                 </div>
                             )}
-                            
+
                             {currentProblem.options.map((option: any) => (
                                 <Button
                                     key={option.id}
                                     variant={selectedOption === option.id ? "default" : "outline"}
                                     className="w-full text-left justify-start h-auto p-4"
-                                    onClick={() => !hasSubmitted && setSelectedOption(option.id as AllowedSubmissions)}
+                                    onClick={() => !hasSubmitted && setSelectedOptionWithRef(option.id as AllowedSubmissions)}
                                     disabled={hasSubmitted}
                                 >
                                     <span className="font-medium mr-2">{String.fromCharCode(65 + option.id)}.</span>
@@ -309,6 +387,12 @@ export const Quiz = () => {
                                         <span className="font-bold text-lg">{user.points}</span>
                                     </div>
                                 ))}
+                            <Button
+                                onClick={() => navigate('/')}
+                                className="w-full mt-4"
+                            >
+                                Back to Home
+                            </Button>
                         </div>
                     </CardContent>
                 </Card>
@@ -331,6 +415,9 @@ export const Quiz = () => {
                     <p className="text-sm text-gray-500 mt-2">
                         Please contact the admin if this persists.
                     </p>
+                    <Button onClick={() => navigate('/')} className="mt-4">
+                        Go Back Home
+                    </Button>
                 </CardContent>
             </Card>
         </div>

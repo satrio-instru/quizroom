@@ -55,7 +55,7 @@ function Navigation() {
 }
 
 function AppContent() {
-  const { userId, currentRoomId } = useSocket();
+  const { currentRoomId } = useSocket();
 
   return (
     <>
@@ -65,7 +65,7 @@ function AppContent() {
         <Route 
           path="/quiz/:roomId" 
           element={
-            userId && currentRoomId ? (
+            currentRoomId ? (
               <Quiz />
             ) : (
               <Navigate to="/" replace />
