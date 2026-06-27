@@ -126,6 +126,26 @@ export class UserManager {
             }
         });
 
+        // ─── Get questions for a room ───
+        socket.on("getRoomQuestions", (data) => {
+            if (!socket.data.isAdmin) {
+                socket.emit("error", { message: "Not authenticated as admin." });
+                return;
+            }
+            try {
+                const quiz = this.quizManager.getQuiz(data.roomId);
+                if (quiz) {
+                    const questions = quiz.getAllQuestions();
+                    socket.emit("roomQuestions", { roomId: data.roomId, questions });
+                } else {
+                    socket.emit("roomQuestions", { roomId: data.roomId, questions: [] });
+                }
+            } catch (error: any) {
+                console.error("getRoomQuestions error:", error?.message || error);
+                socket.emit("error", { message: `Failed to get questions: ${error?.message || 'unknown error'}` });
+            }
+        });
+
         socket.on("createProblem", (data) => {
             if (!socket.data.isAdmin) {
                 socket.emit("error", { message: "Not authenticated as admin." });

@@ -41,6 +41,7 @@ export const Admin = () => {
   const [roomId, setRoomId] = useState('');
   const [currentQuizState, setCurrentQuizState] = useState<any>(null);
   const [activeQuizzes, setActiveQuizzes] = useState<string[]>([]);
+  const [roomQuestions, setRoomQuestions] = useState<any[]>([]);
   const [error, setError] = useState<string>('');
   const [success, setSuccess] = useState<string>('');
   
@@ -116,6 +117,10 @@ export const Admin = () => {
         setCurrentQuizState(data);
       });
 
+      socket.on('roomQuestions', (data) => {
+        setRoomQuestions(data.questions || []);
+      });
+
       socket.on('error', (data) => {
         setError(data.message);
         setSuccess('');
@@ -125,6 +130,7 @@ export const Admin = () => {
         socket.off('roomsList');
         socket.off('quizCreated');
         socket.off('problemAdded');
+        socket.off('roomQuestions');
         socket.off('quizStateUpdate');
         socket.off('error');
       };
@@ -781,14 +787,24 @@ export const Admin = () => {
                     </Button>
                   </div>
 
-                  <Button
-                    onClick={handleGetQuizState}
-                    disabled={!roomId.trim() || !isConnected}
-                    variant="secondary"
-                    className="w-full"
-                  >
-                    Refresh Quiz State
-                  </Button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      onClick={handleGetQuizState}
+                      disabled={!roomId.trim() || !isConnected}
+                      variant="secondary"
+                      className="w-full"
+                    >
+                      Refresh State
+                    </Button>
+                    <Button
+                      onClick={() => { if (socket && roomId.trim()) { socket.emit('getRoomQuestions', { roomId: roomId.trim() }); }}}
+                      disabled={!roomId.trim() || !isConnected}
+                      variant="secondary"
+                      className="w-full"
+                    >
+                      Lihat Soal
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
 
@@ -830,6 +846,33 @@ export const Admin = () => {
                 </CardContent>
               </Card>
             </div>
+
+            {/* Questions List */}
+            {roomQuestions.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Daftar Soal ({roomQuestions.length})</CardTitle>
+                  <CardDescription>Room: {roomId}</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3 max-h-96 overflow-y-auto">
+                    {roomQuestions.map((q: any, idx: number) => (
+                      <div key={idx} className="border rounded p-3 bg-white">
+                        <p className="font-medium text-sm">{q.number}. {q.title}</p>
+                        <p className="text-xs text-gray-500 mb-2">{q.description}</p>
+                        <div className="grid grid-cols-2 gap-1 text-xs">
+                          {q.options?.map((opt: any, oi: number) => (
+                            <div key={oi} className="p-1 rounded bg-gray-50">
+                              <span className="font-medium">{String.fromCharCode(65 + oi)}.</span> {opt.title}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
 
           <TabsContent value="monitor" className="space-y-4">

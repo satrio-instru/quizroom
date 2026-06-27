@@ -282,6 +282,16 @@ export class Quiz {
         return this.problems.length;
     }
 
+    // Get all questions (without answers for security)
+    getAllQuestions() {
+        return this.problems.map((p, i) => ({
+            number: i + 1,
+            title: p.title,
+            description: p.description,
+            options: p.options,
+        }));
+    }
+
     getCurrentState(includeAnswers = false) {
         if (this.currentState === "not_started") {
             return {
