@@ -4,6 +4,7 @@ import { AllowedSubmissions, Problem, User } from "./types/types";
 import { ParticipantAccess, isAccessExpired } from "./access/ParticipantAccess";
 
 const PROBLEM_TIME_S = 20;
+const LEADERBOARD_SHOW_S = 3; // Show leaderboard for 3 seconds before auto-advancing
 
 
 export class Quiz {
@@ -87,7 +88,11 @@ export class Quiz {
         })
         this.leaderboardTimeout = setTimeout(() => {
             this.sendLeaderboard();
-            this.leaderboardTimeout = null;
+            // Auto-advance to next question after showing leaderboard
+            this.leaderboardTimeout = setTimeout(() => {
+                this.next();
+                this.leaderboardTimeout = null;
+            }, LEADERBOARD_SHOW_S * 1000);
         }, PROBLEM_TIME_S * 1000);
     }
 
@@ -226,6 +231,33 @@ export class Quiz {
             const timeRatio = Math.min(elapsed / maxTime, 1);
             const points = Math.max(0, Math.round(1000 - (500 * timeRatio)));
             user.points += points;
+        }
+
+        // Check if all users have answered → auto-advance
+        this.checkAllAnswered();
+    }
+
+    // Check if all connected users have submitted for the current problem
+    private checkAllAnswered() {
+        const activeProblem = this.problems[this.activeProblem];
+        if (!activeProblem || this.users.length === 0) return;
+
+        const allAnswered = this.users.every(user =>
+            activeProblem.submissions.some(s => s.userId === user.id)
+        );
+
+        if (allAnswered) {
+            // Clear the timer
+            if (this.leaderboardTimeout) {
+                clearTimeout(this.leaderboardTimeout);
+                this.leaderboardTimeout = null;
+            }
+            // Show leaderboard, then auto-advance after 3 seconds
+            this.sendLeaderboard();
+            this.leaderboardTimeout = setTimeout(() => {
+                this.next();
+                this.leaderboardTimeout = null;
+            }, LEADERBOARD_SHOW_S * 1000);
         }
     }
 
