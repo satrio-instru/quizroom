@@ -14,6 +14,10 @@ export function getSupabase(): SupabaseClient | null {
                 persistSession: false,
                 autoRefreshToken: false,
             },
+            realtime: {
+                // @ts-ignore
+                transport: require('ws'),
+            },
         });
     }
 
