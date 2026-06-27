@@ -4,3 +4,8 @@
 **/*.log
 **/*.tsbuildinfo
 .git
+frontend/
+images/
+.vscode/
+.idea/
+README.md

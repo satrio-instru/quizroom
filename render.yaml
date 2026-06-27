@@ -1,4 +1,9 @@
+# Render.com Blueprint
+# Backend: Web Service (Docker)
+# Frontend: Static Site
+
 services:
+  # ─── Backend ───
   - type: web
     name: quizroom-api
     runtime: docker
@@ -9,11 +14,16 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: PORT
+        value: "3000"
       - key: ADMIN_PASSWORD
-        sync: false
+        generateValue: true
       - key: CORS_ORIGINS
         sync: false
+        # Set di Render Dashboard setelah frontend deploy:
+        # https://quizroom.onrender.com
 
+  # ─── Frontend ───
   - type: static_site
     name: quizroom
     buildCommand: cd frontend && npm install && npm run build
@@ -22,3 +32,5 @@ services:
     envVars:
       - key: VITE_SOCKET_URL
         sync: false
+        # Set di Render Dashboard:
+        # https://quizroom-api.onrender.com
