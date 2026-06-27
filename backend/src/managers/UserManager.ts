@@ -1,6 +1,6 @@
 import { Socket } from "socket.io";
 import { config } from "../config";
-import { getParticipantAccess } from "../access/ParticipantAccess";
+import { getParticipantAccess, invalidateParticipantCache } from "../access/ParticipantAccess";
 import { QuizManager } from "./QuizManager";
 
 export class UserManager {
@@ -22,7 +22,7 @@ export class UserManager {
 
     private createHandlers(socket: Socket) {
         // ─── Participant join ───
-        socket.on("join", (data) => {
+        socket.on("join", async (data) => {
             const npm = String(data.npm ?? data.name ?? "").trim();
             const roomId = String(data.roomId ?? "").trim();
 
@@ -33,7 +33,7 @@ export class UserManager {
                 return;
             }
 
-            const accessResult = getParticipantAccess(npm);
+            const accessResult = await getParticipantAccess(npm);
 
             if (!accessResult.allowed || !accessResult.access) {
                 socket.emit("joinRejected", {
@@ -153,6 +153,16 @@ export class UserManager {
             } catch (error) {
                 socket.emit("error", { message: "Failed to get quiz state" });
             }
+        });
+
+        // ─── Refresh participant cache (after saving to Supabase) ───
+        socket.on("refreshParticipants", () => {
+            if (!socket.data.isAdmin) {
+                socket.emit("error", { message: "Not authenticated as admin." });
+                return;
+            }
+            invalidateParticipantCache();
+            socket.emit("participantsRefreshed", { success: true });
         });
 
         // ─── Participant submit ───

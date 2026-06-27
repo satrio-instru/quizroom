@@ -8,7 +8,8 @@ import { Badge } from './ui/badge';
 import { Alert, AlertDescription } from './ui/alert';
 import { useSocket } from '../contexts/SocketContext';
 import type { AllowedSubmissions } from '../types/types';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, Save, RefreshCw, Upload } from 'lucide-react';
+import { fetchParticipants, saveParticipants, type ParticipantRow } from '../lib/supabase';
 
 interface ParticipantScheduleDraft {
   id: number;
@@ -51,6 +52,10 @@ export const Admin = () => {
   const [participantSchedules, setParticipantSchedules] = useState<ParticipantScheduleDraft[]>([
     createScheduleDraft(1),
   ]);
+  const [scheduleLoading, setScheduleLoading] = useState(false);
+  const [scheduleSaving, setScheduleSaving] = useState(false);
+  const [scheduleStatus, setScheduleStatus] = useState<string>('');
+  const [scheduleError, setScheduleError] = useState<string>('');
 
   // Listen for authentication events (always active)
   useEffect(() => {
@@ -59,9 +64,11 @@ export const Admin = () => {
         if (data.success) {
           setIsAuthenticated(true);
           setError('');
+          setSuccess('');
         } else {
           setError('Invalid admin password');
           setIsAuthenticated(false);
+          setSuccess('');
         }
       });
 
@@ -70,6 +77,13 @@ export const Admin = () => {
       };
     }
   }, [socket]);
+
+  // Auto-load participants from Supabase when authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      handleLoadParticipants();
+    }
+  }, [isAuthenticated]);
 
   // Listen for admin events (only when authenticated)
   useEffect(() => {
@@ -175,6 +189,94 @@ export const Admin = () => {
     setActiveQuizzes([]);
     setError('');
     setSuccess('');
+  };
+
+  // Load participants from Supabase
+  const handleLoadParticipants = async () => {
+    setScheduleLoading(true);
+    setScheduleError('');
+    setScheduleStatus('');
+    try {
+      const data = await fetchParticipants();
+      if (data.length === 0) {
+        setScheduleStatus('Belum ada data peserta di server.');
+        return;
+      }
+      const drafts: ParticipantScheduleDraft[] = data.map((row, i) => ({
+        id: row.id ?? Date.now() + i,
+        npm: row.npm ?? '',
+        name: row.name ?? '',
+        date: row.date ?? '',
+        day: row.day ?? '',
+        startTime: row.start_time ?? '',
+        durationMinutes: row.duration_minutes ?? '20',
+        endTime: row.end_time ?? '',
+      }));
+      setParticipantSchedules(drafts);
+      setScheduleStatus(`Berhasil memuat ${drafts.length} peserta dari server.`);
+      setTimeout(() => setScheduleStatus(''), 3000);
+    } catch (err) {
+      setScheduleError('Gagal memuat data dari server.');
+    } finally {
+      setScheduleLoading(false);
+    }
+  };
+
+  // Save participants to Supabase
+  const handleSaveParticipants = async () => {
+    setScheduleSaving(true);
+    setScheduleError('');
+    setScheduleStatus('');
+    try {
+      const rows: ParticipantRow[] = participantSchedules.map(s => ({
+        npm: s.npm,
+        name: s.name,
+        date: s.date,
+        day: s.day,
+        start_time: s.startTime,
+        duration_minutes: s.durationMinutes,
+        end_time: s.endTime,
+      }));
+      const result = await saveParticipants(rows);
+      if (result.success) {
+        const count = rows.filter(r => r.npm.trim()).length;
+        setScheduleStatus(`Berhasil menyimpan ${count} peserta ke server!`);
+        // Tell backend to refresh its cache
+        if (socket) {
+          socket.emit('refreshParticipants');
+        }
+        setTimeout(() => setScheduleStatus(''), 3000);
+      } else {
+        setScheduleError(`Gagal menyimpan: ${result.error}`);
+      }
+    } catch (err) {
+      setScheduleError('Gagal menyimpan data ke server.');
+    } finally {
+      setScheduleSaving(false);
+    }
+  };
+
+  // Import from JSON (for bulk import from PESERTA.md script)
+  const handleImportJSON = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const data = JSON.parse(text) as ParticipantScheduleDraft[];
+        if (Array.isArray(data) && data.length > 0) {
+          setParticipantSchedules(data.map((d, i) => ({ ...d, id: d.id ?? Date.now() + i })));
+          setScheduleStatus(`Berhasil import ${data.length} peserta dari file JSON.`);
+          setTimeout(() => setScheduleStatus(''), 3000);
+        }
+      } catch {
+        setScheduleError('File JSON tidak valid.');
+      }
+    };
+    input.click();
   };
 
   const updateOption = (index: number, value: string) => {
@@ -435,13 +537,27 @@ export const Admin = () => {
               <CardHeader>
                 <CardTitle className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                   Jadwal Peserta
-                  <Button onClick={addParticipantSchedule} size="sm" className="w-full md:w-auto">
-                    <Plus className="mr-2 h-4 w-4" />
-                    Tambah Peserta
-                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    <Button onClick={handleLoadParticipants} size="sm" variant="outline" disabled={scheduleLoading} className="w-full md:w-auto">
+                      <RefreshCw className={`mr-2 h-4 w-4 ${scheduleLoading ? 'animate-spin' : ''}`} />
+                      {scheduleLoading ? 'Memuat...' : 'Muat dari Server'}
+                    </Button>
+                    <Button onClick={handleSaveParticipants} size="sm" disabled={scheduleSaving} className="w-full md:w-auto">
+                      <Save className={`mr-2 h-4 w-4 ${scheduleSaving ? 'animate-spin' : ''}`} />
+                      {scheduleSaving ? 'Menyimpan...' : 'Simpan ke Server'}
+                    </Button>
+                    <Button onClick={handleImportJSON} size="sm" variant="outline" className="w-full md:w-auto">
+                      <Upload className="mr-2 h-4 w-4" />
+                      Import JSON
+                    </Button>
+                    <Button onClick={addParticipantSchedule} size="sm" variant="outline" className="w-full md:w-auto">
+                      <Plus className="mr-2 h-4 w-4" />
+                      Tambah Baris
+                    </Button>
+                  </div>
                 </CardTitle>
                 <CardDescription>
-                  Layout input manual untuk NPM, tanggal, hari, jam mulai, durasi menit, dan jam selesai.
+                  Data peserta tersimpan di Supabase. Klik "Muat dari Server" untuk memuat data, edit, lalu "Simpan ke Server".
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -552,9 +668,21 @@ export const Admin = () => {
                   ))}
                 </div>
 
+                {scheduleStatus && (
+                  <Alert className="border-green-200 bg-green-50">
+                    <AlertDescription className="text-green-700">{scheduleStatus}</AlertDescription>
+                  </Alert>
+                )}
+
+                {scheduleError && (
+                  <Alert className="border-red-200 bg-red-50">
+                    <AlertDescription className="text-red-700">{scheduleError}</AlertDescription>
+                  </Alert>
+                )}
+
                 <div className="flex flex-col gap-2 rounded-md border border-blue-100 bg-blue-50 p-3 text-sm text-blue-800 md:flex-row md:items-center md:justify-between">
                   <span>Total baris jadwal: {participantSchedules.length}</span>
-                  <span>Data ini masih layout sementara dan belum disimpan ke server.</span>
+                  <span>Data tersimpan di Supabase. Klik "Simpan ke Server" untuk menyimpan perubahan.</span>
                 </div>
               </CardContent>
             </Card>

@@ -1,10 +1,12 @@
 import fs from "fs";
 import path from "path";
+import { getSupabase } from "../supabase";
 
 const FREE_ACCESS_NPM = "2317041013";
 const PARTICIPANT_FILE_NAME = "PESERTA(1).md";
 const FALLBACK_DURATION_MINUTES = 20;
 const JAKARTA_TIME_ZONE = "Asia/Jakarta";
+const CACHE_TTL_MS = 30_000; // 30 seconds
 
 export interface ParticipantAccess {
     npm: string;
@@ -31,6 +33,8 @@ interface AccessResult {
 
 let participantSlotsByNpm: Map<string, ParticipantSlot[]> | null = null;
 let configuredDurationMinutes: number | null = null;
+let lastLoadTime = 0;
+let dataSource: 'supabase' | 'file' | 'none' = 'none';
 
 function findParticipantFile() {
     const candidates = [
@@ -43,7 +47,9 @@ function findParticipantFile() {
 }
 
 function parseClockToMinutes(clock: string) {
-    const [hour, minute] = clock.split(".").map(Number);
+    // Support both "15.00" (file format) and "15:00" (Supabase format)
+    const separator = clock.includes(":") ? ":" : ".";
+    const [hour, minute] = clock.split(separator).map(Number);
     return (hour * 60) + minute;
 }
 
@@ -52,18 +58,83 @@ function parseDurationMinutes(markdown: string) {
     return match ? Number(match[1]) : FALLBACK_DURATION_MINUTES;
 }
 
-function loadParticipantSlots() {
-    if (participantSlotsByNpm) {
-        return participantSlotsByNpm;
+// Load participant slots from Supabase
+async function loadFromSupabase(): Promise<Map<string, ParticipantSlot[]>> {
+    const supabase = getSupabase();
+    const slotsByNpm = new Map<string, ParticipantSlot[]>();
+
+    if (!supabase) {
+        return slotsByNpm;
     }
 
+    try {
+        const { data, error } = await supabase
+            .from('participants')
+            .select('*')
+            .order('id', { ascending: true });
+
+        if (error) {
+            console.error('Supabase query error:', error.message);
+            return slotsByNpm;
+        }
+
+        if (!data || data.length === 0) {
+            return slotsByNpm;
+        }
+
+        // Use duration from the first row, or fallback
+        configuredDurationMinutes = FALLBACK_DURATION_MINUTES;
+
+        for (const row of data) {
+            const npm = String(row.npm ?? "").trim();
+            const name = String(row.name ?? "").trim();
+            const day = String(row.day ?? "").trim();
+            const startTime = String(row.start_time ?? "").trim();
+            const endTime = String(row.end_time ?? "").trim();
+
+            if (!npm || !startTime || !endTime) continue;
+
+            const startMinutes = parseClockToMinutes(startTime);
+            const endMinutes = parseClockToMinutes(endTime);
+            const rawTime = `${startTime.replace(":", ".")}-${endTime.replace(":", ".")}`;
+
+            const slot: ParticipantSlot = {
+                npm,
+                name,
+                day,
+                rawTime,
+                startMinutes,
+                endMinutes,
+            };
+
+            const existingSlots = slotsByNpm.get(npm) ?? [];
+            existingSlots.push(slot);
+            slotsByNpm.set(npm, existingSlots);
+        }
+
+        // Try to get duration from the data
+        if (data[0]?.duration_minutes) {
+            const parsed = Number(data[0].duration_minutes);
+            if (!isNaN(parsed) && parsed > 0) {
+                configuredDurationMinutes = parsed;
+            }
+        }
+
+        return slotsByNpm;
+    } catch (err) {
+        console.error('Error loading from Supabase:', err);
+        return slotsByNpm;
+    }
+}
+
+// Load participant slots from local file (fallback)
+function loadFromFile(): Map<string, ParticipantSlot[]> {
     const participantFile = findParticipantFile();
-    participantSlotsByNpm = new Map();
+    const slotsByNpm = new Map<string, ParticipantSlot[]>();
 
     if (!participantFile) {
         configuredDurationMinutes = FALLBACK_DURATION_MINUTES;
-        console.warn(`${PARTICIPANT_FILE_NAME} not found. Only free access NPM can join.`);
-        return participantSlotsByNpm;
+        return slotsByNpm;
     }
 
     const markdown = fs.readFileSync(participantFile, "utf8");
@@ -82,12 +153,52 @@ function loadParticipantSlots() {
             endMinutes: parseClockToMinutes(endClock),
         };
 
-        const existingSlots = participantSlotsByNpm.get(npm) ?? [];
+        const existingSlots = slotsByNpm.get(npm) ?? [];
         existingSlots.push(slot);
-        participantSlotsByNpm.set(npm, existingSlots);
+        slotsByNpm.set(npm, existingSlots);
     }
 
-    console.log(`Loaded ${participantSlotsByNpm.size} participant NPM entries from ${participantFile}`);
+    return slotsByNpm;
+}
+
+// Invalidate cache (call after saving new data to Supabase)
+export function invalidateParticipantCache() {
+    participantSlotsByNpm = null;
+    lastLoadTime = 0;
+}
+
+// Main loading function: try Supabase first, fall back to file
+async function loadParticipantSlots(): Promise<Map<string, ParticipantSlot[]>> {
+    const now = Date.now();
+
+    // Return cached data if still valid
+    if (participantSlotsByNpm && (now - lastLoadTime) < CACHE_TTL_MS) {
+        return participantSlotsByNpm;
+    }
+
+    // Try Supabase first
+    const supabaseSlots = await loadFromSupabase();
+    if (supabaseSlots.size > 0) {
+        participantSlotsByNpm = supabaseSlots;
+        lastLoadTime = now;
+        dataSource = 'supabase';
+        console.log(`Loaded ${supabaseSlots.size} participant NPM entries from Supabase`);
+        return participantSlotsByNpm;
+    }
+
+    // Fallback to local file
+    const fileSlots = loadFromFile();
+    participantSlotsByNpm = fileSlots;
+    lastLoadTime = now;
+
+    if (fileSlots.size > 0) {
+        dataSource = 'file';
+        console.log(`Loaded ${fileSlots.size} participant NPM entries from local file`);
+    } else {
+        dataSource = 'none';
+        console.warn(`No participant data found in Supabase or local file. Only free access NPM can join.`);
+    }
+
     return participantSlotsByNpm;
 }
 
@@ -122,7 +233,7 @@ function formatSchedules(slots: ParticipantSlot[]) {
     return slots.map((slot) => `${slot.day} ${slot.rawTime}`).join(", ");
 }
 
-export function getParticipantAccess(npm: string, now = new Date()): AccessResult {
+export async function getParticipantAccess(npm: string, now = new Date()): Promise<AccessResult> {
     if (!/^\d+$/.test(npm)) {
         return {
             allowed: false,
@@ -143,7 +254,7 @@ export function getParticipantAccess(npm: string, now = new Date()): AccessResul
         };
     }
 
-    const slotsByNpm = loadParticipantSlots();
+    const slotsByNpm = await loadParticipantSlots();
     const slots = slotsByNpm.get(npm);
 
     if (!slots || slots.length === 0) {

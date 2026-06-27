@@ -13,6 +13,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@supabase/supabase-js": "^2.108.2",
     "dotenv": "^16.4.7",
     "socket.io": "^4.8.1",
     "ts-node": "^10.9.2",
