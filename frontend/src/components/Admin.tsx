@@ -694,17 +694,19 @@ export const Admin = () => {
                 <CardHeader>
                   <CardTitle>Quiz Controls</CardTitle>
                   <CardDescription>
-                    {roomId ? `Controlling room: ${roomId}` : 'Select a room to control'}
+                    {roomId ? `Controlling room: ${roomId}` : 'Masukkan Room ID untuk mengontrol quiz'}
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {!roomId && (
-                    <Alert className="border-yellow-200 bg-yellow-50">
-                      <AlertDescription className="text-yellow-700">
-                        Please select a room first
-                      </AlertDescription>
-                    </Alert>
-                  )}
+                  <div className="space-y-2">
+                    <Label htmlFor="control-room-id">Room ID</Label>
+                    <Input
+                      id="control-room-id"
+                      placeholder="Masukkan Room ID (contoh: UAP-PTI-2025)"
+                      value={roomId}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRoomId(e.target.value)}
+                    />
+                  </div>
                   
                   <div className="grid grid-cols-2 gap-2">
                     <Button 
@@ -788,10 +790,19 @@ export const Admin = () => {
                 </CardDescription>
               </CardHeader>
               <CardContent>
+                <div className="space-y-2 mb-4">
+                  <Label htmlFor="monitor-room-id">Room ID</Label>
+                  <Input
+                    id="monitor-room-id"
+                    placeholder="Masukkan Room ID (contoh: UAP-PTI-2025)"
+                    value={roomId}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRoomId(e.target.value)}
+                  />
+                </div>
                 {!roomId ? (
                   <Alert className="border-yellow-200 bg-yellow-50">
                     <AlertDescription className="text-yellow-700">
-                      Please select a room to monitor
+                      Masukkan Room ID untuk memonitor quiz
                     </AlertDescription>
                   </Alert>
                 ) : currentQuizState ? (
