@@ -140,6 +140,8 @@ export class QuizManager {
 
         // Try to find matching question set (e.g., room "UAP-PTI-2025" matches set "UAP")
         const setName = await this.findMatchingQuestionSet(roomId);
+        let questionCount = 0;
+
         if (setName) {
             const questions = await loadQuestions(setName);
             for (const q of questions) {
@@ -158,18 +160,24 @@ export class QuizManager {
                     submissions: [],
                 });
             }
+            questionCount = questions.length;
             console.log(`Auto-imported ${questions.length} questions from set "${setName}" for room "${roomId}"`);
+        } else {
+            console.log(`No matching question set found for room "${roomId}"`);
         }
 
         this.quizes.push(quiz);
 
-        // Persist room to Supabase
-        await saveRoom({
-            room_id: roomId,
-            question_set: setName || '',
-            current_problem: 0,
-            status: 'not_started',
-        });
+        // Only persist to Supabase if we have a valid question set
+        // (rooms table has FK constraint on question_set)
+        if (setName) {
+            await saveRoom({
+                room_id: roomId,
+                question_set: setName,
+                current_problem: 0,
+                status: 'not_started',
+            });
+        }
     }
 
     // Find matching question set for a room ID
