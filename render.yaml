@@ -1,9 +1,7 @@
-# Render.com Blueprint
-# Backend: Web Service (Docker)
-# Frontend: Static Site
+# Render Blueprint
+# Deploy only the backend here. Deploy the frontend separately on Vercel.
 
 services:
-  # ─── Backend ───
   - type: web
     name: quizroom-api
     runtime: docker
@@ -20,17 +18,5 @@ services:
         generateValue: true
       - key: CORS_ORIGINS
         sync: false
-        # Set di Render Dashboard setelah frontend deploy:
-        # https://quizroom.onrender.com
-
-  # ─── Frontend ───
-  - type: static_site
-    name: quizroom
-    buildCommand: cd frontend && npm install && npm run build
-    staticPublishPath: ./frontend/dist
-    autoDeploy: true
-    envVars:
-      - key: VITE_SOCKET_URL
-        sync: false
-        # Set di Render Dashboard:
-        # https://quizroom-api.onrender.com
+        # Set this in Render after Vercel deploys the frontend:
+        # https://your-vercel-project.vercel.app
