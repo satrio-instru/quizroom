@@ -99,12 +99,15 @@ export class UserManager {
                 return;
             }
             try {
+                console.log(`Creating quiz room: ${data.roomId}`);
                 await this.quizManager.addQuiz(data.roomId);
                 const quiz = this.quizManager.getQuiz(data.roomId);
                 const questionCount = quiz ? quiz.getProblemCount() : 0;
+                console.log(`Room "${data.roomId}" created with ${questionCount} questions`);
                 socket.emit("quizCreated", { roomId: data.roomId, questionCount });
-            } catch (error) {
-                socket.emit("error", { message: "Failed to create quiz" });
+            } catch (error: any) {
+                console.error("createQuiz error:", error?.message || error);
+                socket.emit("error", { message: `Failed to create quiz: ${error?.message || 'unknown error'}` });
             }
         });
 
@@ -117,8 +120,9 @@ export class UserManager {
             try {
                 const rooms = await loadAllRooms();
                 socket.emit("roomsList", rooms);
-            } catch (error) {
-                socket.emit("error", { message: "Failed to get rooms" });
+            } catch (error: any) {
+                console.error("getRooms error:", error?.message || error);
+                socket.emit("error", { message: `Failed to get rooms: ${error?.message || 'unknown error'}` });
             }
         });
 
