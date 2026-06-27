@@ -109,7 +109,7 @@ export const Admin = () => {
 
       socket.on('error', (data) => {
         setError(data.message);
-        setTimeout(() => setError(''), 5000);
+        setSuccess('');
       });
 
       return () => {
@@ -133,10 +133,17 @@ export const Admin = () => {
   };
 
   const handleCreateQuiz = () => {
-    if (socket && roomId.trim()) {
-      socket.emit('createQuiz', { roomId: roomId.trim() });
-      setError('');
+    if (!socket || !isConnected) {
+      setError('Tidak terhubung ke server. Coba refresh halaman.');
+      return;
     }
+    if (!roomId.trim()) {
+      setError('Masukkan Room ID terlebih dahulu.');
+      return;
+    }
+    socket.emit('createQuiz', { roomId: roomId.trim() });
+    setSuccess(`Membuat room "${roomId.trim()}"...`);
+    setError('');
   };
 
   const handleCreateProblem = () => {
@@ -162,23 +169,45 @@ export const Admin = () => {
   };
 
   const handleNext = () => {
-    if (socket && roomId.trim()) {
-      socket.emit('next', { roomId: roomId.trim() });
-      setError('');
+    if (!socket || !isConnected) {
+      setError('Tidak terhubung ke server. Coba refresh halaman.');
+      return;
     }
+    if (!roomId.trim()) {
+      setError('Masukkan Room ID terlebih dahulu.');
+      return;
+    }
+    socket.emit('next', { roomId: roomId.trim() });
+    setSuccess('Maju ke soal berikutnya...');
+    setError('');
   };
 
   const handleStartQuiz = () => {
-    if (socket && roomId.trim()) {
-      socket.emit('start', { roomId: roomId.trim() });
-      setError('');
+    if (!socket || !isConnected) {
+      setError('Tidak terhubung ke server. Coba refresh halaman.');
+      return;
     }
+    if (!roomId.trim()) {
+      setError('Masukkan Room ID terlebih dahulu.');
+      return;
+    }
+    socket.emit('start', { roomId: roomId.trim() });
+    setSuccess(`Memulai quiz di room "${roomId.trim()}"...`);
+    setError('');
   };
 
   const handleGetQuizState = () => {
-    if (socket && roomId.trim()) {
-      socket.emit('getQuizState', { roomId: roomId.trim() });
+    if (!socket || !isConnected) {
+      setError('Tidak terhubung ke server. Coba refresh halaman.');
+      return;
     }
+    if (!roomId.trim()) {
+      setError('Masukkan Room ID terlebih dahulu.');
+      return;
+    }
+    socket.emit('getQuizState', { roomId: roomId.trim() });
+    setSuccess('Memuat status quiz...');
+    setError('');
   };
 
   // BUG FIX [8.17]: Add logout functionality
@@ -708,19 +737,26 @@ export const Admin = () => {
                     />
                   </div>
                   
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
+                    <span className="text-sm text-gray-600">
+                      {isConnected ? 'Terhubung ke server' : 'Tidak terhubung — coba refresh halaman'}
+                    </span>
+                  </div>
+
                   <div className="grid grid-cols-2 gap-2">
-                    <Button 
-                      onClick={handleStartQuiz} 
-                      disabled={!roomId.trim()}
+                    <Button
+                      onClick={handleStartQuiz}
+                      disabled={!roomId.trim() || !isConnected}
                       size="lg"
                       className="w-full"
                     >
                       Start Quiz
                     </Button>
-                    
-                    <Button 
-                      onClick={handleNext} 
-                      disabled={!roomId.trim()}
+
+                    <Button
+                      onClick={handleNext}
+                      disabled={!roomId.trim() || !isConnected}
                       size="lg"
                       variant="outline"
                       className="w-full"
@@ -728,10 +764,10 @@ export const Admin = () => {
                       Next Question
                     </Button>
                   </div>
-                  
-                  <Button 
-                    onClick={handleGetQuizState} 
-                    disabled={!roomId.trim()}
+
+                  <Button
+                    onClick={handleGetQuizState}
+                    disabled={!roomId.trim() || !isConnected}
                     variant="secondary"
                     className="w-full"
                   >
