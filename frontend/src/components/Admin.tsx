@@ -88,10 +88,19 @@ export const Admin = () => {
   // Listen for admin events (only when authenticated)
   useEffect(() => {
     if (socket && isAuthenticated) {
+      // Load rooms from Supabase
+      socket.emit('getRooms');
+      socket.on('roomsList', (rooms: any[]) => {
+        setActiveQuizzes(rooms.map(r => r.room_id));
+      });
+
       socket.on('quizCreated', (data) => {
-        setSuccess(`Quiz room "${data.roomId}" created successfully!`);
-        setActiveQuizzes(prev => [...prev, data.roomId]);
-        setTimeout(() => setSuccess(''), 3000);
+        const msg = data.questionCount > 0
+          ? `Room "${data.roomId}" berhasil dibuat dengan ${data.questionCount} soal!`
+          : `Room "${data.roomId}" berhasil dibuat!`;
+        setSuccess(msg);
+        setActiveQuizzes(prev => prev.includes(data.roomId) ? prev : [...prev, data.roomId]);
+        setTimeout(() => setSuccess(''), 5000);
       });
 
       socket.on('problemAdded', () => {
@@ -113,6 +122,7 @@ export const Admin = () => {
       });
 
       return () => {
+        socket.off('roomsList');
         socket.off('quizCreated');
         socket.off('problemAdded');
         socket.off('quizStateUpdate');
@@ -457,19 +467,25 @@ export const Admin = () => {
 
               <Card>
                 <CardHeader>
-                  <CardTitle>Active Quizzes</CardTitle>
-                  <CardDescription>Manage existing quiz rooms</CardDescription>
+                  <CardTitle className="flex items-center justify-between">
+                    Active Quizzes
+                    <Button size="sm" variant="outline" onClick={() => socket?.emit('getRooms')}>
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                      Refresh
+                    </Button>
+                  </CardTitle>
+                  <CardDescription>Room dari Supabase (persist, tidak hilang)</CardDescription>
                 </CardHeader>
                 <CardContent>
                   {activeQuizzes.length === 0 ? (
-                    <p className="text-gray-500 text-center py-4">No active quizzes</p>
+                    <p className="text-gray-500 text-center py-4">Belum ada room. Ketik Room ID dan klik Create.</p>
                   ) : (
                     <div className="space-y-2">
                       {activeQuizzes.map((quiz) => (
                         <div key={quiz} className="flex items-center justify-between p-2 border rounded">
                           <span className="font-medium">{quiz}</span>
-                          <Button 
-                            size="sm" 
+                          <Button
+                            size="sm"
                             variant="outline"
                             onClick={() => setRoomId(quiz)}
                           >

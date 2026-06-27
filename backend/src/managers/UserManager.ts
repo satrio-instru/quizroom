@@ -2,6 +2,7 @@ import { Socket } from "socket.io";
 import { config } from "../config";
 import { getParticipantAccess, invalidateParticipantCache } from "../access/ParticipantAccess";
 import { QuizManager } from "./QuizManager";
+import { loadAllRooms } from "../supabase";
 
 export class UserManager {
 
@@ -92,16 +93,32 @@ export class UserManager {
 
         // ─── BUG FIX [8.7]: Admin events — always registered, auth checked per call ───
 
-        socket.on("createQuiz", (data) => {
+        socket.on("createQuiz", async (data) => {
             if (!socket.data.isAdmin) {
                 socket.emit("error", { message: "Not authenticated as admin." });
                 return;
             }
             try {
-                this.quizManager.addQuiz(data.roomId);
-                socket.emit("quizCreated", { roomId: data.roomId });
+                await this.quizManager.addQuiz(data.roomId);
+                const quiz = this.quizManager.getQuiz(data.roomId);
+                const questionCount = quiz ? quiz.getProblemCount() : 0;
+                socket.emit("quizCreated", { roomId: data.roomId, questionCount });
             } catch (error) {
                 socket.emit("error", { message: "Failed to create quiz" });
+            }
+        });
+
+        // ─── Get all rooms from Supabase ───
+        socket.on("getRooms", async () => {
+            if (!socket.data.isAdmin) {
+                socket.emit("error", { message: "Not authenticated as admin." });
+                return;
+            }
+            try {
+                const rooms = await loadAllRooms();
+                socket.emit("roomsList", rooms);
+            } catch (error) {
+                socket.emit("error", { message: "Failed to get rooms" });
             }
         });
 

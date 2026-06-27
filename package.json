@@ -18,6 +18,7 @@
   },
   "homepage": "https://github.com/bPavan16/quizroom#readme",
   "dependencies": {
-    "@supabase/supabase-js": "^2.108.2"
+    "@supabase/supabase-js": "^2.108.2",
+    "pg": "^8.22.0"
   }
 }

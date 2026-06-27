@@ -250,6 +250,38 @@ export class Quiz {
     @returns {Object} - The current state of the quiz.
     */
 
+    // Restore state from Supabase
+    restoreState(status: string, currentProblem: number) {
+        this.currentState = status as any;
+        this.activeProblem = currentProblem;
+        if (status !== 'not_started') {
+            this.hasStarted = true;
+        }
+    }
+
+    // Restore a user with their score from Supabase
+    restoreUser(userId: string, npm: string, name: string, points: number) {
+        const existing = this.users.find(x => x.id === userId);
+        if (!existing) {
+            this.users.push({ id: userId, name, npm, points });
+        }
+    }
+
+    // Get a user by ID
+    getUser(userId: string) {
+        return this.users.find(x => x.id === userId) ?? null;
+    }
+
+    // Get current problem index
+    getActiveProblemIndex() {
+        return this.activeProblem;
+    }
+
+    // Get total problem count
+    getProblemCount() {
+        return this.problems.length;
+    }
+
     getCurrentState(includeAnswers = false) {
         if (this.currentState === "not_started") {
             return {
