@@ -17,6 +17,7 @@
     "dotenv": "^16.4.7",
     "socket.io": "^4.8.1",
     "ts-node": "^10.9.2",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "ws": "^8.21.0"
   }
 }

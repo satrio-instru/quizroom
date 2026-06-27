@@ -9,7 +9,12 @@ export function getSupabase(): SupabaseClient | null {
     }
 
     if (!supabaseInstance) {
-        supabaseInstance = createClient(config.supabaseUrl, config.supabaseKey);
+        supabaseInstance = createClient(config.supabaseUrl, config.supabaseKey, {
+            auth: {
+                persistSession: false,
+                autoRefreshToken: false,
+            },
+        });
     }
 
     return supabaseInstance;
