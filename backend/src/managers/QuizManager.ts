@@ -201,4 +201,11 @@ export class QuizManager {
     getActiveQuizIds(): string[] {
         return this.quizes.map(q => q.roomId);
     }
+
+    // Reset a quiz: clear users and restart
+    resetQuiz(roomId: string) {
+        const quiz = this.getQuiz(roomId);
+        if (!quiz) return;
+        quiz.reset();
+    }
 }

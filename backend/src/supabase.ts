@@ -94,6 +94,33 @@ export async function questionSetExists(setName: string): Promise<boolean> {
     return !error && !!data;
 }
 
+// ============ ACCUMULATED SCORES ============
+
+export interface AccumulatedScoreRow {
+    room_id: string;
+    npm: string;
+    name: string;
+    total_points: number;
+    attempts: number;
+    last_attempt_at?: string;
+}
+
+export async function upsertAccumulatedScore(score: AccumulatedScoreRow): Promise<boolean> {
+    const supabase = getSupabase();
+    if (!supabase) return false;
+    const { error } = await supabase.from('accumulated_scores').upsert(score, { onConflict: 'room_id,npm' });
+    if (error) { console.error('upsertAccumulatedScore error:', error.message); return false; }
+    return true;
+}
+
+export async function loadAccumulatedScores(roomId: string): Promise<AccumulatedScoreRow[]> {
+    const supabase = getSupabase();
+    if (!supabase) return [];
+    const { data, error } = await supabase.from('accumulated_scores').select('*').eq('room_id', roomId).order('total_points', { ascending: false });
+    if (error || !data) return [];
+    return data as AccumulatedScoreRow[];
+}
+
 // ============ SCORES ============
 
 export interface ScoreRow {

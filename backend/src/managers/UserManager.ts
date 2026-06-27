@@ -2,7 +2,7 @@ import { Socket } from "socket.io";
 import { config } from "../config";
 import { getParticipantAccess, invalidateParticipantCache } from "../access/ParticipantAccess";
 import { QuizManager } from "./QuizManager";
-import { loadAllRooms } from "../supabase";
+import { loadAllRooms, loadScores, upsertAccumulatedScore, loadAccumulatedScores, getSupabase } from "../supabase";
 
 export class UserManager {
 
@@ -204,6 +204,63 @@ export class UserManager {
             }
             invalidateParticipantCache();
             socket.emit("participantsRefreshed", { success: true });
+        });
+
+        // ─── Reset Room: archive scores, clear, restart ───
+        socket.on("resetRoom", async (data) => {
+            if (!socket.data.isAdmin) {
+                socket.emit("error", { message: "Not authenticated as admin." });
+                return;
+            }
+            try {
+                const roomId = data.roomId;
+                // 1. Archive current scores to accumulated_scores
+                const currentScores = await loadScores(roomId);
+                for (const score of currentScores) {
+                    await upsertAccumulatedScore({
+                        room_id: roomId,
+                        npm: score.npm,
+                        name: score.name,
+                        total_points: score.points,
+                        attempts: 1,
+                        last_attempt_at: new Date().toISOString(),
+                    });
+                }
+                // 2. Delete current scores
+                const supabase = getSupabase();
+                if (supabase) {
+                    await supabase.from('scores').delete().eq('room_id', roomId);
+                }
+                // 3. Reset room in Supabase
+                if (supabase) {
+                    await supabase.from('rooms').update({
+                        status: 'not_started',
+                        current_problem: 0,
+                        updated_at: new Date().toISOString(),
+                    }).eq('room_id', roomId);
+                }
+                // 4. Reset in-memory quiz
+                this.quizManager.resetQuiz(roomId);
+                socket.emit("roomReset", { roomId, archivedCount: currentScores.length });
+            } catch (error: any) {
+                console.error("resetRoom error:", error?.message || error);
+                socket.emit("error", { message: `Failed to reset room: ${error?.message || 'unknown error'}` });
+            }
+        });
+
+        // ─── Get accumulated scores ───
+        socket.on("getAccumulatedScores", async (data) => {
+            if (!socket.data.isAdmin) {
+                socket.emit("error", { message: "Not authenticated as admin." });
+                return;
+            }
+            try {
+                const scores = await loadAccumulatedScores(data.roomId);
+                socket.emit("accumulatedScores", { roomId: data.roomId, scores });
+            } catch (error: any) {
+                console.error("getAccumulatedScores error:", error?.message || error);
+                socket.emit("error", { message: `Failed to get scores: ${error?.message || 'unknown error'}` });
+            }
         });
 
         // ─── Participant submit ───

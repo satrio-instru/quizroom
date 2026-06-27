@@ -42,6 +42,7 @@ export const Admin = () => {
   const [currentQuizState, setCurrentQuizState] = useState<any>(null);
   const [activeQuizzes, setActiveQuizzes] = useState<string[]>([]);
   const [roomQuestions, setRoomQuestions] = useState<any[]>([]);
+  const [accumulatedScores, setAccumulatedScores] = useState<any[]>([]);
   const [error, setError] = useState<string>('');
   const [success, setSuccess] = useState<string>('');
   
@@ -121,6 +122,17 @@ export const Admin = () => {
         setRoomQuestions(data.questions || []);
       });
 
+      socket.on('roomReset', (data) => {
+        setSuccess(`Room "${data.roomId}" berhasil direset! ${data.archivedCount} skor diarsipkan.`);
+        setRoomQuestions([]);
+        setCurrentQuizState(null);
+        setTimeout(() => setSuccess(''), 5000);
+      });
+
+      socket.on('accumulatedScores', (data) => {
+        setAccumulatedScores(data.scores || []);
+      });
+
       socket.on('error', (data) => {
         setError(data.message);
         setSuccess('');
@@ -131,6 +143,8 @@ export const Admin = () => {
         socket.off('quizCreated');
         socket.off('problemAdded');
         socket.off('roomQuestions');
+        socket.off('roomReset');
+        socket.off('accumulatedScores');
         socket.off('quizStateUpdate');
         socket.off('error');
       };
@@ -805,6 +819,29 @@ export const Admin = () => {
                       Lihat Soal
                     </Button>
                   </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      onClick={() => {
+                        if (socket && roomId.trim() && confirm(`Reset room "${roomId}"? Skor akan diarsipkan.`)) {
+                          socket.emit('resetRoom', { roomId: roomId.trim() });
+                        }
+                      }}
+                      disabled={!roomId.trim() || !isConnected}
+                      variant="destructive"
+                      className="w-full"
+                    >
+                      Reset Room
+                    </Button>
+                    <Button
+                      onClick={() => { if (socket && roomId.trim()) { socket.emit('getAccumulatedScores', { roomId: roomId.trim() }); }}}
+                      disabled={!roomId.trim() || !isConnected}
+                      variant="outline"
+                      className="w-full"
+                    >
+                      Akumulasi Skor
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
 
@@ -846,6 +883,33 @@ export const Admin = () => {
                 </CardContent>
               </Card>
             </div>
+
+            {/* Accumulated Scores */}
+            {accumulatedScores.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Akumulasi Skor ({accumulatedScores.length} peserta)</CardTitle>
+                  <CardDescription>Total poin dari semua percobaan</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    {accumulatedScores.map((s: any, idx: number) => (
+                      <div key={idx} className="flex items-center justify-between p-2 border rounded bg-white">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-sm">{idx + 1}.</span>
+                          <span className="font-medium">{s.name || s.npm}</span>
+                          <span className="text-xs text-gray-500">({s.npm})</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs text-gray-500">{s.attempts}x</span>
+                          <span className="font-bold text-lg">{s.total_points}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             {/* Questions List */}
             {roomQuestions.length > 0 && (

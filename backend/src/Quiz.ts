@@ -324,6 +324,22 @@ export class Quiz {
         }));
     }
 
+    // Reset quiz: clear users, restart state
+    reset() {
+        if (this.leaderboardTimeout) {
+            clearTimeout(this.leaderboardTimeout);
+            this.leaderboardTimeout = null;
+        }
+        this.users = [];
+        this.activeProblem = 0;
+        this.currentState = "not_started";
+        this.hasStarted = false;
+        // Clear submissions from all problems
+        for (const p of this.problems) {
+            p.submissions = [];
+        }
+    }
+
     getCurrentState(includeAnswers = false) {
         if (this.currentState === "not_started") {
             return {
